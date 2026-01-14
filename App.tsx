@@ -1,138 +1,96 @@
-import React, { useState } from 'react';
-import { FinancialData, ConsultantAnalysis } from './types';
-import { analyzeFinancials } from './services/geminiService';
-import FinancialInputForm from './components/FinancialInputForm';
-import AnalysisDashboard from './components/AnalysisDashboard';
-import { Briefcase, Info, Lock } from 'lucide-react';
+import streamlit as st
+import google.generativeai as genai
+import plotly.graph_objects as go
+import re
 
-const App: React.FC = () => {
-  const [step, setStep] = useState<'input' | 'analyzing' | 'result'>('input');
-  const [financialData, setFinancialData] = useState<FinancialData | null>(null);
-  const [analysisResult, setAnalysisResult] = useState<ConsultantAnalysis | null>(null);
-  const [error, setError] = useState<string | null>(null);
+# --- 1. アプリ設定とCSSデザイン ---
+st.set_page_config(
+    page_title="経営分析AI for Nisshin Fire",
+    page_icon="🛡️",
+    layout="wide"
+)
 
-  const handleAnalysis = async (data: FinancialData) => {
-    setFinancialData(data);
-    setStep('analyzing');
-    setError(null);
-
-    try {
-      const result = await analyzeFinancials(data);
-      setAnalysisResult(result);
-      setStep('result');
-    } catch (err) {
-      console.error(err);
-      setError("AI分析中にエラーが発生しました。APIキーを確認するか、もう一度お試しください。");
-      setStep('input');
+# プロフェッショナルなレポート風デザインにするCSS
+st.markdown("""
+<style>
+    /* 全体の背景とフォント */
+    .main { background-color: #f4f6f9; }
+    h1, h2, h3, h4 { font-family: 'Helvetica Neue', Arial, sans-serif; color: #2c3e50; }
+    
+    /* スコアカードのデザイン */
+    .score-card {
+        background-color: white; padding: 20px; border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08); text-align: center; height: 100%;
     }
-  };
+    .score-title { font-size: 1.1rem; font-weight: 600; color: #555; margin-bottom: 8px; }
+    .score-value { font-size: 3.2rem; font-weight: 800; margin: 5px 0; }
+    .color-profit { color: #2962FF; } .color-safety { color: #00C853; } .color-growth { color: #FF6D00; }
 
-  const handleReset = () => {
-    setStep('input');
-    setFinancialData(null);
-    setAnalysisResult(null);
-    setError(null);
-  };
+    /* 分析セクションの見出し */
+    .section-header {
+        margin-top: 30px; margin-bottom: 15px; padding-left: 15px; border-left: 5px solid #1E88E5;
+        font-size: 1.5rem; font-weight: bold;
+    }
 
-  return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900 flex flex-col">
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Briefcase className="w-5 h-5 text-white" />
-            </div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">
-              InsureConsult <span className="text-blue-600">AI</span>
-            </h1>
-          </div>
-          
-          <div className="flex items-center gap-6">
-            <div className="text-sm text-slate-500 hidden md:block border-r border-slate-300 pr-6">
-              経営コンサル型保険営業支援ツール
-            </div>
-            {/* 画像エラー回避のためテキストロゴに変更 */}
-            <div className="flex flex-col items-end justify-center">
-               <span className="font-bold text-slate-700 text-lg tracking-wider leading-none mb-1">日新火災</span>
-               <span className="text-[10px] font-bold text-slate-400 tracking-widest uppercase leading-none">Tokio Marine Group</span>
-            </div>
-          </div>
-        </div>
-      </header>
+    /* 詳細分析カード */
+    .analysis-card {
+        background-color: white; border-radius: 10px; padding: 25px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05); border-top: 3px solid #2962FF;
+    }
 
-      {/* Main Content */}
-      <main className="flex-grow p-4 md:p-8">
-        {error && (
-          <div className="max-w-4xl mx-auto mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3 text-red-700">
-            <Info className="w-5 h-5 mt-0.5 flex-shrink-0" />
-            <p>{error}</p>
-          </div>
-        )}
+    /* 経営課題カード（重要） */
+    .issue-card-container { display: flex; flex-wrap: wrap; gap: 20px; }
+    .issue-card {
+        flex: 1 1 300px; /* 横並び、狭くなると折り返し */
+        background-color: #fff5f5; border-radius: 10px; padding: 20px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-left: 5px solid #e53935;
+    }
+    .issue-title { font-weight: bold; font-size: 1.2rem; color: #c62828; margin-bottom: 10px; display: flex; align-items: center;}
+    .issue-title::before { content: "⚠️"; margin-right: 10px; }
 
-        {step === 'input' && (
-          <div className="animate-fade-in">
-             <div className="text-center max-w-2xl mx-auto mb-10">
-              <h2 className="text-3xl font-bold mb-4">財務データから、最適な提案を。</h2>
-              <p className="text-slate-600">
-                顧客の決算書（P/L、B/S）の数値を入力するだけで、
-                <br className="hidden md:inline" />
-                AIが「収益性・安全性・成長性」を分析し、コンサルティング視点での保険提案を作成します。
-              </p>
-            </div>
-            <FinancialInputForm onSubmit={handleAnalysis} isLoading={false} />
-          </div>
-        )}
+    /* 提案カード */
+    .proposal-card {
+        background-color: #e8f5e9; border-radius: 10px; padding: 25px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05); border: 2px solid #4caf50;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-        {step === 'analyzing' && (
-          <div className="flex flex-col items-center justify-center py-20 animate-fade-in">
-            <div className="relative w-24 h-24 mb-8">
-              <div className="absolute top-0 left-0 w-full h-full border-4 border-blue-100 rounded-full"></div>
-              <div className="absolute top-0 left-0 w-full h-full border-4 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
-              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-blue-600">
-                <Briefcase className="w-8 h-8" />
-              </div>
-            </div>
-            <h3 className="text-2xl font-bold text-slate-800 mb-2">財務分析を実行中...</h3>
-            <p className="text-slate-500">
-              数千の経営シナリオと照合し、最適な保険商品を検討しています。
-            </p>
-          </div>
-        )}
+# APIキー設定
+try:
+    api_key = st.secrets["GOOGLE_API_KEY"]
+    genai.configure(api_key=api_key)
+    try: model = genai.GenerativeModel('gemini-2.5-flash')
+    except: model = genai.GenerativeModel('gemini-1.5-flash')
+except:
+    st.error("APIキーが設定されていません。")
+    st.stop()
 
-        {step === 'result' && analysisResult && financialData && (
-          <AnalysisDashboard 
-            data={analysisResult} 
-            financialData={financialData} 
-            onReset={handleReset} 
-          />
-        )}
-      </main>
+# --- 2. 計算ロジック ---
+def calculate_scores(rev, prev_rev, op_profit, assets, equity, cur_assets, cur_liab):
+    op_margin = (op_profit / rev) * 100 if rev > 0 else 0
+    score_profit = min(100, max(0, int(op_margin * 10))) 
+    
+    equity_ratio = (equity / assets) * 100 if assets > 0 else 0
+    current_ratio = (cur_assets / cur_liab) * 100 if cur_liab > 0 else 0
+    raw_safety = (equity_ratio * 1.5) + (current_ratio * 0.1)
+    score_safety = min(100, max(0, int(raw_safety)))
 
-      {/* Footer */}
-      <footer className="bg-slate-900 text-slate-400 py-8 border-t border-slate-800 mt-12">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4 text-center md:text-left">
-          <div className="text-xs">
-            <p className="font-semibold text-slate-300 mb-1">InsureConsult AI</p>
-            <p>© 2024 Tokio Marine & Nichido Fire Insurance Co., Ltd. Group / Nisshin Fire</p>
-            <p className="mt-2 text-slate-600">
-              ※本ツールは営業支援目的のデモンストレーション用アプリケーションです。
-            </p>
-          </div>
-          
-          <div className="flex flex-col items-center md:items-end gap-2">
-            <div className="flex items-center gap-2 text-xs bg-slate-800 px-3 py-1.5 rounded-full text-slate-400 border border-slate-700">
-              <Lock className="w-3 h-3" />
-              <span>Secure Data Processing</span>
-            </div>
-            <p className="text-[10px] text-slate-600 max-w-xs text-right">
-              入力データは本セッションでの分析のみに使用され、<br/>AIモデルの学習データとして利用されることはありません。
-            </p>
-          </div>
-        </div>
-      </footer>
-    </div>
-  );
-};
+    growth_rate = (rev / prev_rev) * 100 if prev_rev > 0 else 100
+    score_growth = min(100, max(0, int((growth_rate - 90) * 3.5)))
 
-export default App;
+    return score_profit, score_safety, score_growth, op_margin, equity_ratio, growth_rate
+
+# --- 3. サイドバー入力 ---
+with st.sidebar:
+    st.title("🛡️ 企業データ入力")
+    company_name = st.text_input("企業名", value="株式会社サンプル技研")
+    industry = st.selectbox("業種", ["製造業", "建設業", "運輸業", "小売・卸売業", "IT・通信", "医療・福祉", "その他"])
+    st.markdown("---")
+    with st.expander("📊 財務数値入力", expanded=True):
+        revenue = st.number_input("売上高 (万円)", value=52000, step=100)
+        prev_revenue = st.number_input("前期売上 (万円)", value=48000, step=100)
+        operating_profit = st.number_input("営業利益 (万円)", value=3500, step=10)
+        current_assets = st.number_input("流動資産 (万円)", value=25000, step=100)
+        current_liabilities = st.number_input("流動負債 (万円)", value=20000, step=100)
+        total_assets = st.number_input("総資産 (万円)", value=
