@@ -1,7 +1,13 @@
 import streamlit as st
 import google.generativeai as genai
-import plotly.graph_objects as go
 import re
+
+# Plotlyの読み込み（エラー回避用）
+try:
+    import plotly.graph_objects as go
+    plotly_available = True
+except ImportError:
+    plotly_available = False
 
 # --- 1. アプリ設定とCSSデザイン ---
 st.set_page_config(
@@ -13,46 +19,51 @@ st.set_page_config(
 # プロフェッショナルなレポート風デザインにするCSS
 st.markdown("""
 <style>
-    /* 全体の背景とフォント */
-    .main { background-color: #f4f6f9; }
-    h1, h2, h3, h4 { font-family: 'Helvetica Neue', Arial, sans-serif; color: #2c3e50; }
+    .main { background-color: #f8f9fa; }
+    h1, h2, h3 { font-family: 'Helvetica Neue', Arial, sans-serif; color: #333; }
     
-    /* スコアカードのデザイン */
-    .score-card {
-        background-color: white; padding: 20px; border-radius: 12px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.08); text-align: center; height: 100%;
+    /* 3大指標カード（スコア＋解説） */
+    .metric-card {
+        background-color: white;
+        border-radius: 15px;
+        padding: 25px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        height: 100%;
+        border-top: 5px solid #ccc;
     }
-    .score-title { font-size: 1.1rem; font-weight: 600; color: #555; margin-bottom: 8px; }
-    .score-value { font-size: 3.2rem; font-weight: 800; margin: 5px 0; }
-    .color-profit { color: #2962FF; } .color-safety { color: #00C853; } .color-growth { color: #FF6D00; }
+    .card-blue { border-top-color: #2962FF; }
+    .card-green { border-top-color: #00C853; }
+    .card-orange { border-top-color: #FF6D00; }
+    
+    .metric-header { display: flex; align-items: center; margin-bottom: 15px; }
+    .metric-icon { font-size: 1.5rem; margin-right: 10px; padding: 10px; border-radius: 10px; color: white; }
+    .icon-blue { background-color: #2962FF; }
+    .icon-green { background-color: #00C853; }
+    .icon-orange { background-color: #FF6D00; }
+    
+    .metric-title { font-weight: bold; font-size: 1.1rem; color: #555; }
+    
+    .metric-score { font-size: 3.5rem; font-weight: 800; line-height: 1; margin-bottom: 10px; }
+    .metric-score span { font-size: 1rem; color: #999; font-weight: normal; }
+    .text-blue { color: #2962FF; }
+    .text-green { color: #00C853; }
+    .text-orange { color: #FF6D00; }
+    
+    .metric-desc { font-size: 0.9rem; color: #666; line-height: 1.6; margin-top: 15px; text-align: left; }
 
-    /* 分析セクションの見出し */
-    .section-header {
-        margin-top: 30px; margin-bottom: 15px; padding-left: 15px; border-left: 5px solid #1E88E5;
-        font-size: 1.5rem; font-weight: bold;
-    }
-
-    /* 詳細分析カード */
-    .analysis-card {
-        background-color: white; border-radius: 10px; padding: 25px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05); border-top: 3px solid #2962FF;
-    }
-
-    /* 経営課題カード（重要） */
-    .issue-card-container { display: flex; flex-wrap: wrap; gap: 20px; }
+    /* 経営課題カード */
     .issue-card {
-        flex: 1 1 300px; /* 横並び、狭くなると折り返し */
-        background-color: #fff5f5; border-radius: 10px; padding: 20px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-left: 5px solid #e53935;
+        background-color: white; border-radius: 10px; padding: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 20px;
+        border-left: 5px solid #FF5252;
     }
-    .issue-title { font-weight: bold; font-size: 1.2rem; color: #c62828; margin-bottom: 10px; display: flex; align-items: center;}
-    .issue-title::before { content: "⚠️"; margin-right: 10px; }
+    .issue-title { font-weight: bold; font-size: 1.1rem; color: #D32F2F; margin-bottom: 8px; display: flex; align-items: center; }
 
     /* 提案カード */
     .proposal-card {
-        background-color: #e8f5e9; border-radius: 10px; padding: 25px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05); border: 2px solid #4caf50;
+        background-color: #E8F5E9; border: 1px solid #C8E6C9; border-radius: 10px; padding: 20px; margin-bottom: 15px;
     }
+    .proposal-title { color: #2E7D32; font-weight: bold; font-size: 1.1rem; margin-bottom: 5px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -63,7 +74,7 @@ try:
     try: model = genai.GenerativeModel('gemini-2.5-flash')
     except: model = genai.GenerativeModel('gemini-1.5-flash')
 except:
-    st.error("APIキーが設定されていません。")
+    st.error("APIキーの設定が必要です。")
     st.stop()
 
 # --- 2. 計算ロジック ---
@@ -81,16 +92,4 @@ def calculate_scores(rev, prev_rev, op_profit, assets, equity, cur_assets, cur_l
 
     return score_profit, score_safety, score_growth, op_margin, equity_ratio, growth_rate
 
-# --- 3. サイドバー入力 ---
-with st.sidebar:
-    st.title("🛡️ 企業データ入力")
-    company_name = st.text_input("企業名", value="株式会社サンプル技研")
-    industry = st.selectbox("業種", ["製造業", "建設業", "運輸業", "小売・卸売業", "IT・通信", "医療・福祉", "その他"])
-    st.markdown("---")
-    with st.expander("📊 財務数値入力", expanded=True):
-        revenue = st.number_input("売上高 (万円)", value=52000, step=100)
-        prev_revenue = st.number_input("前期売上 (万円)", value=48000, step=100)
-        operating_profit = st.number_input("営業利益 (万円)", value=3500, step=10)
-        current_assets = st.number_input("流動資産 (万円)", value=25000, step=100)
-        current_liabilities = st.number_input("流動負債 (万円)", value=20000, step=100)
-        total_assets = st.number_input("総資産 (万円)", value=
+# --- 3. サイドバー
