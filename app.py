@@ -8,6 +8,25 @@ st.set_page_config(
     layout="wide"
 )
 
+# カスタムCSSでデザインを調整（カードの見た目を良くする）
+st.markdown("""
+<style>
+    .stContainer {
+        border-radius: 10px;
+        padding: 20px;
+        background-color: #f9f9f9;
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
+    }
+    .metric-card {
+        background-color: #ffffff;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 15px;
+        text-align: center;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # APIキーの設定
 try:
     api_key = st.secrets["GOOGLE_API_KEY"]
@@ -25,34 +44,28 @@ except:
 # --- 3. セッション状態の初期化 ---
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "こんにちは。日新火災のリスクコンサルタントAIです。\n左側のサイドバーに数値を入力し、分析を開始してください。"}
+        {"role": "assistant", "content": "こんにちは。日新火災のリスクコンサルタントAIです。\n左側のサイドバーに企業データを入力し、分析を開始してください。"}
     ]
 
 # --- ヘルパー関数: テキストをカード形式で表示する ---
 def display_as_cards(text):
-    # 区切り文字で3つのパートに分割を試みる
+    # 区切り文字で分割
     parts = text.split("---SPLIT---")
     
     if len(parts) >= 3:
-        # 成功したらカード形式で表示
-        
-        # 1枚目：診断サマリー（青）
-        with st.container(border=True):
-            st.markdown("### 🏢 1. 経営診断サマリー")
-            st.info(parts[0].strip())
+        # 1. 診断サマリー（青）
+        with st.container():
+            st.info(f"### 📊 1. 経営診断サマリー\n\n{parts[0].strip()}")
 
-        # 2枚目：リスク（黄色）
-        with st.container(border=True):
-            st.markdown("### ⚠️ 2. 想定される経営リスク")
-            st.warning(parts[1].strip())
+        # 2. リスク（黄色）
+        with st.container():
+            st.warning(f"### ⚠️ 2. 想定される経営リスク\n\n{parts[1].strip()}")
             
-        # 3枚目：提案（緑/成功色）
-        with st.container(border=True):
-            st.markdown("### 🛡️ 3. 日新火災からのソリューション提案")
-            st.success(parts[2].strip())
-            
+        # 3. 提案（緑）
+        with st.container():
+            st.success(f"### 🛡️ 3. 日新火災からのソリューション提案\n\n{parts[2].strip()}")
     else:
-        # 分割に失敗した場合はそのまま表示（フォールバック）
+        # 分割できなかった場合はそのまま表示
         st.markdown(text)
 
 
@@ -83,21 +96,5 @@ with st.sidebar:
     st.markdown("---")
     analyze_btn = st.button("AI分析を実行する", type="primary", use_container_width=True)
 
-# --- 5. メイン画面（チャットエリア） ---
-st.title("🛡️ 経営コンサルティング・レポート")
-st.caption(f"Target: {company_name} 様 （業種: {industry}）")
-
-# 履歴の表示
-for message in st.session_state.messages:
-    avatar = "🛡️" if message["role"] == "assistant" else "👤"
-    with st.chat_message(message["role"], avatar=avatar):
-        # AIの回答かつ、区切り文字が含まれている場合はカード表示
-        if message["role"] == "assistant" and "---SPLIT---" in message["content"]:
-            display_as_cards(message["content"])
-        else:
-            st.markdown(message["content"])
-
-# 分析実行時の処理
-if analyze_btn:
-    # ユーザーのアクションを表示
-    user_text = f"【分析リクエスト】\n企業名: {company_name}\n売上: {revenue:,
+# --- 5. メイン画面 ---
+st.title("🛡️
