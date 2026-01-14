@@ -1,0 +1,5 @@
+{
+  "name": "InsureConsult AI",
+  "description": "保険営業担当者が顧客の財務諸表（収益性・安全性・成長性）を分析し、AI主導のコンサルティングアドバイスと保険商品の推奨を受けるためのツールです。",
+  "requestFramePermissions": []
+}
