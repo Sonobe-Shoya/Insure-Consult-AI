@@ -1,175 +1,271 @@
 import streamlit as st
 import google.generativeai as genai
+import plotly.graph_objects as go
 
-# --- 1. アプリの基本設定 ---
+# --- 1. アプリ設定とCSSデザイン ---
 st.set_page_config(
     page_title="経営分析AI for Nisshin Fire",
     page_icon="🛡️",
     layout="wide"
 )
 
-# カスタムCSSでデザインを調整（カードの見た目を良くする）
+# プロフェッショナルなレポート風デザインにするCSS
 st.markdown("""
 <style>
-    .stContainer {
+    /* 全体の背景とフォント */
+    .main {
+        background-color: #f8f9fa;
+    }
+    h1, h2, h3 {
+        font-family: 'Helvetica Neue', Arial, sans-serif;
+        color: #333;
+    }
+    
+    /* スコアカードのデザイン */
+    .score-card {
+        background-color: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        text-align: center;
+        margin-bottom: 20px;
+        height: 100%;
+    }
+    .score-title {
+        font-size: 1.2rem;
+        font-weight: bold;
+        color: #555;
+        margin-bottom: 10px;
+    }
+    .score-value {
+        font-size: 3.5rem;
+        font-weight: 800;
+        margin: 10px 0;
+    }
+    /* 色分け */
+    .color-profit { color: #2962FF; } /* 青：収益性 */
+    .color-safety { color: #00C853; } /* 緑：安全性 */
+    .color-growth { color: #FF6D00; } /* オレンジ：成長性 */
+
+    /* 課題カードのデザイン */
+    .issue-card {
+        background-color: white;
+        border-left: 5px solid #d32f2f;
+        padding: 15px 20px;
+        margin-bottom: 15px;
+        border-radius: 5px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .issue-title {
+        font-weight: bold;
+        font-size: 1.1rem;
+        color: #d32f2f;
+        margin-bottom: 5px;
+    }
+
+    /* 提案カードのデザイン */
+    .proposal-card {
+        background-color: #e3f2fd;
+        border: 1px solid #bbdefb;
         border-radius: 10px;
         padding: 20px;
-        background-color: #f9f9f9;
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
-    }
-    .metric-card {
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
-        border-radius: 8px;
-        padding: 15px;
-        text-align: center;
+        margin-bottom: 15px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# APIキーの設定
+# APIキー設定
 try:
     api_key = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=api_key)
-except Exception as e:
-    st.error("APIキーの設定が必要です。")
+    # 最新モデル設定
+    try:
+        model = genai.GenerativeModel('gemini-2.5-flash')
+    except:
+        model = genai.GenerativeModel('gemini-1.5-flash')
+except:
+    st.error("APIキーが設定されていません。")
     st.stop()
 
-# --- 2. AIモデルの指定 ---
-try:
-    model = genai.GenerativeModel('gemini-2.5-flash')
-except:
-    model = genai.GenerativeModel('gemini-flash-latest')
-
-# --- 3. セッション状態の初期化 ---
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "assistant", "content": "こんにちは。日新火災のリスクコンサルタントAIです。\n左側のサイドバーに企業データを入力し、分析を開始してください。"}
-    ]
-
-# --- ヘルパー関数: テキストをカード形式で表示する ---
-def display_as_cards(text):
-    # 区切り文字で分割
-    parts = text.split("---SPLIT---")
+# --- 2. 計算ロジック（スコア化） ---
+def calculate_scores(rev, prev_rev, op_profit, assets, equity, cur_assets, cur_liab):
+    # 1. 収益性 (営業利益率などから簡易算出)
+    # 基準: 利益率10%で100点とする簡易ロジック
+    op_margin = (op_profit / rev) * 100 if rev > 0 else 0
+    score_profit = min(100, max(0, int(op_margin * 10))) 
     
-    if len(parts) >= 3:
-        # 1. 診断サマリー（青）
-        with st.container():
-            st.info(f"### 📊 1. 経営診断サマリー\n\n{parts[0].strip()}")
+    # 2. 安全性 (自己資本比率と流動比率から算出)
+    # 基準: 自己資本比率40%以上で高得点
+    equity_ratio = (equity / assets) * 100 if assets > 0 else 0
+    current_ratio = (cur_assets / cur_liab) * 100 if cur_liab > 0 else 0
+    # 複合スコア
+    raw_safety = (equity_ratio * 1.5) + (current_ratio * 0.1)
+    score_safety = min(100, max(0, int(raw_safety)))
 
-        # 2. リスク（黄色）
-        with st.container():
-            st.warning(f"### ⚠️ 2. 想定される経営リスク\n\n{parts[1].strip()}")
-            
-        # 3. 提案（緑）
-        with st.container():
-            st.success(f"### 🛡️ 3. 日新火災からのソリューション提案\n\n{parts[2].strip()}")
-    else:
-        # 分割できなかった場合はそのまま表示
-        st.markdown(text)
+    # 3. 成長性 (売上高成長率)
+    # 基準: 120%成長で100点
+    growth_rate = (rev / prev_rev) * 100 if prev_rev > 0 else 100
+    score_growth = min(100, max(0, int((growth_rate - 90) * 3.5)))
 
+    return score_profit, score_safety, score_growth, op_margin, equity_ratio, growth_rate
 
-# --- 4. サイドバー（入力エリア） ---
+# --- 3. サイドバー入力 ---
 with st.sidebar:
     st.title("🛡️ 企業データ入力")
-    
-    st.markdown("### 基本情報")
     company_name = st.text_input("企業名", value="株式会社サンプル技研")
     industry = st.selectbox("業種", ["製造業", "建設業", "運輸業", "小売・卸売業", "IT・通信", "医療・福祉", "その他"])
-
     st.markdown("---")
     st.markdown("### 📊 財務数値 (単位:万円)")
     
-    tab1, tab2 = st.tabs(["損益(P/L)", "資産(B/S)"])
-    
-    with tab1:
-        revenue = st.number_input("売上高", value=50000, step=100)
+    with st.expander("損益情報 (P/L)", expanded=True):
+        revenue = st.number_input("売上高", value=52000, step=100)
         prev_revenue = st.number_input("前期売上", value=48000, step=100)
-        operating_profit = st.number_input("営業利益", value=2500, step=10)
+        operating_profit = st.number_input("営業利益", value=3500, step=10)
 
-    with tab2:
-        current_assets = st.number_input("流動資産", value=20000, step=100)
-        current_liabilities = st.number_input("流動負債", value=15000, step=100)
-        total_assets = st.number_input("総資産", value=40000, step=100)
-        total_equity = st.number_input("純資産(自己資本)", value=18000, step=100)
+    with st.expander("資産情報 (B/S)", expanded=True):
+        current_assets = st.number_input("流動資産", value=25000, step=100)
+        current_liabilities = st.number_input("流動負債", value=20000, step=100)
+        total_assets = st.number_input("総資産", value=45000, step=100)
+        total_equity = st.number_input("純資産", value=18000, step=100)
 
-    st.markdown("---")
-    analyze_btn = st.button("AI分析を実行する", type="primary", use_container_width=True)
+    analyze_btn = st.button("レポートを作成する", type="primary", use_container_width=True)
 
-# --- 5. メイン画面 ---
-st.title("🛡️ 経営コンサルティング・レポート")
-st.caption(f"Target: {company_name} 様 （業種: {industry}）")
+# --- 4. メインコンテンツ ---
 
-# チャット履歴の表示
-for message in st.session_state.messages:
-    avatar = "🛡️" if message["role"] == "assistant" else "👤"
-    with st.chat_message(message["role"], avatar=avatar):
-        if message["role"] == "assistant" and "---SPLIT---" in message["content"]:
-            display_as_cards(message["content"])
-        else:
-            st.markdown(message["content"])
+# ヘッダー
+st.title(f"{company_name} 様 経営診断レポート")
+st.markdown(f"**業種:** {industry} | **分析日:** 2026/01/14")
+st.divider()
 
-# 分析実行時の処理
 if analyze_btn:
-    # ユーザー入力を表示（ここがエラーの原因だったので修正しました）
-    user_text = f"""【分析リクエスト】
-    企業名: {company_name}
-    売上: {revenue:,}万円
-    利益: {operating_profit:,}万円"""
+    # スコア計算
+    s_profit, s_safety, s_growth, val_profit, val_safety, val_growth = calculate_scores(
+        revenue, prev_revenue, operating_profit, total_assets, total_equity, current_assets, current_liabilities
+    )
+
+    # --- セクション1: スコアカードとレーダーチャート ---
+    st.subheader("1. 総合診断スコア")
     
-    st.session_state.messages.append({"role": "user", "content": user_text})
-    with st.chat_message("user", avatar="👤"):
-        st.markdown(user_text)
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 1.5])
+    
+    with col1:
+        st.markdown(f"""
+        <div class="score-card">
+            <div class="score-title">🔵 収益性</div>
+            <div class="score-value color-profit">{s_profit}</div>
+            <div style="font-size:0.8rem; color:#666;">営業利益率: {val_profit:.1f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # AI分析開始
-    with st.chat_message("assistant", avatar="🛡️"):
-        status = st.empty()
-        status.markdown("🧠 *AIコンサルタントが分析レポートを作成中...*")
+    with col2:
+        st.markdown(f"""
+        <div class="score-card">
+            <div class="score-title">🟢 安全性</div>
+            <div class="score-value color-safety">{s_safety}</div>
+            <div style="font-size:0.8rem; color:#666;">自己資本比率: {val_safety:.1f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-        # プロンプト（カード分割用の区切り文字を指定）
+    with col3:
+        st.markdown(f"""
+        <div class="score-card">
+            <div class="score-title">🟠 成長性</div>
+            <div class="score-value color-growth">{s_growth}</div>
+            <div style="font-size:0.8rem; color:#666;">売上対前期比: {val_growth:.1f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col4:
+        # レーダーチャートの作成 (Plotly)
+        categories = ['収益性', '安全性', '成長性']
+        fig = go.Figure()
+        fig.add_trace(go.Scatterpolar(
+            r=[s_profit, s_safety, s_growth],
+            theta=categories,
+            fill='toself',
+            name=company_name,
+            line_color='#1E88E5'
+        ))
+        fig.update_layout(
+            polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+            margin=dict(l=20, r=20, t=20, b=20),
+            height=250
+        )
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+    # --- AI分析の実行 ---
+    with st.spinner("AIコンサルタントが詳細分析レポートを作成中..."):
         prompt = f"""
-        あなたは日新火災海上保険のプロフェッショナルなリスクコンサルタントです。
-        以下の財務データに基づき、3つのセクションに分けたレポートを作成してください。
-
-        【重要：出力ルール】
-        各セクションの間に必ず「---SPLIT---」という区切り文字を入れてください。
-
-        【対象企業データ】
-        企業名: {company_name} ({industry})
-        売上: {revenue}万円 (前期: {prev_revenue}万円)
-        利益: {operating_profit}万円
-        流動資産: {current_assets}, 流動負債: {current_liabilities}
-        総資産: {total_assets}, 純資産: {total_equity}
-
-        【記述内容】
-        1. 経営診断サマリー
-           (タイトル不要。収益性・安全性・成長性の観点から、箇条書きで強みと課題を指摘)
+        あなたは日新火災海上保険の熟練リスクコンサルタントです。
+        以下の企業データと、計算されたスコアに基づき、経営者向けの専門的な分析レポートを作成してください。
         
+        【企業データ】
+        - 企業名: {company_name} ({industry})
+        - 売上高: {revenue}万円 (成長率: {val_growth:.1f}%)
+        - 営業利益率: {val_profit:.1f}%
+        - 流動比率: {(current_assets/current_liabilities)*100:.1f}%
+        - 自己資本比率: {val_safety:.1f}%
+        
+        【算出スコア(100点満点)】
+        - 収益性: {s_profit}点
+        - 安全性: {s_safety}点
+        - 成長性: {s_growth}点
+
+        【出力形式】
+        以下のセクション区切り文字 "---SPLIT---" を使って3つのパートに分けて出力してください。
+
+        Part 1: 各指標の詳細分析
+        (収益性・安全性・成長性それぞれについて、なぜこの点数なのか、財務数値を用いて具体的に解説)
+
         ---SPLIT---
 
-        2. 想定される経営リスク
-           (タイトル不要。この財務状況で起こりうる3つのリスクシナリオを具体的に)
+        Part 2: 特定された経営課題 (3つ)
+        (この財務状況から読み取れる具体的なリスク。例:「設備老朽化リスク」「運転資金不足」など。
+        必ず「課題タイトル」と「詳細説明」をセットにすること)
 
         ---SPLIT---
 
-        3. 日新火災からのソリューション提案
-           (タイトル不要。以下の商品から最適なものを提案し、なぜ必要なのかを熱く語る)
-           - ビジサポ (事業活動包括保険)
-           - 労災あんしん保険
-           - サイバーリスク保険
-           - ビジネスプロパティ
+        Part 3: 日新火災からのソリューション提案
+        (特定された課題に対する保険提案。ビジサポ、労災あんしん、サイバー、ビジネスプロパティ等から最適なものを選択し、導入効果を記述)
         """
-
+        
         try:
             response = model.generate_content(prompt)
-            full_text = response.text
+            parts = response.text.split("---SPLIT---")
             
-            # 完了したら表示を更新
-            status.empty()
-            display_as_cards(full_text)
+            # コンテンツがない場合のガード
+            part1 = parts[0] if len(parts) > 0 else "分析エラー"
+            part2 = parts[1] if len(parts) > 1 else "分析エラー"
+            part3 = parts[2] if len(parts) > 2 else "分析エラー"
+
+            st.markdown("---")
+
+            # --- セクション2: 詳細分析 ---
+            st.subheader("2. 財務指標の詳細分析")
+            st.info(part1)
+
+            # --- セクション3: 経営課題の特定 ---
+            st.markdown("---")
+            st.subheader("3. 経営課題の特定")
             
-            # 履歴に保存
-            st.session_state.messages.append({"role": "assistant", "content": full_text})
-            
+            # AIのテキストをそのまま表示するか、少し加工するか
+            # ここではシンプルに見やすく表示
+            st.markdown(part2)
+
+            # --- セクション4: ソリューション提案 ---
+            st.markdown("---")
+            st.subheader("4. 日新火災からのソリューション提案")
+            st.success(part3)
+
         except Exception as e:
             st.error(f"分析中にエラーが発生しました: {e}")
+
+else:
+    # 待機画面
+    st.info("👈 左側のサイドバーに財務数値を入力し、「レポートを作成する」ボタンを押してください。")
+    st.markdown("""
+    ### このツールの特徴
+    * **自動スコアリング:** 収益性・安全性・成長性を瞬時に点数化します。
+    * **バランスチャート:** 企業の強み・弱みを三角形のチャートで可視化します。
+    * **課題特定:** 財務データから隠れた経営リスクを洗い出します。
+    """)
