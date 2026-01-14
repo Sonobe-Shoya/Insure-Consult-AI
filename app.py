@@ -16,15 +16,21 @@ except Exception as e:
     st.error("APIキーの設定が必要です。")
     st.stop()
 
-# --- 2. AIモデルの指定（ここが解決の鍵！） ---
-# 診断で見つかった、あなたの環境専用の最新モデルを指定します
+# --- 2. AIモデルの指定 ---
+# 診断で見つかった最強モデルを指定（そのまま維持）
 try:
     model = genai.GenerativeModel('gemini-2.5-flash')
 except:
-    # 万が一のバックアップ（リストにあった別のモデル）
     model = genai.GenerativeModel('gemini-flash-latest')
 
-# --- 3. サイドバー（入力エリア） ---
+# --- 3. セッション状態の初期化（チャット履歴用） ---
+# これがチャット形式を実現する鍵です
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "assistant", "content": "こんにちは。日新火災のリスクコンサルタントAIです。\n左側のサイドバーに企業の財務データを入力し、「分析を実行」ボタンを押してください。最適なリスク対策をご提案します。"}
+    ]
+
+# --- 4. サイドバー（入力エリア） ---
 with st.sidebar:
     st.title("🛡️ 企業データ入力")
     
@@ -35,14 +41,12 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📊 財務数値 (単位:万円)")
     
-    # タブで入力を整理
     tab1, tab2 = st.tabs(["損益(P/L)", "資産(B/S)"])
     
     with tab1:
         revenue = st.number_input("売上高", value=50000, step=100)
         prev_revenue = st.number_input("前期売上", value=48000, step=100)
         operating_profit = st.number_input("営業利益", value=2500, step=10)
-        net_income = st.number_input("当期純利益", value=1500, step=10)
 
     with tab2:
         current_assets = st.number_input("流動資産", value=20000, step=100)
@@ -51,30 +55,42 @@ with st.sidebar:
         total_equity = st.number_input("純資産(自己資本)", value=18000, step=100)
 
     st.markdown("---")
-    analyze_btn = st.button("AI分析を実行する", type="primary", use_container_width=True)
+    # ボタンが押されたかどうかのフラグ
+    analyze_pressed = st.button("AI分析を実行する", type="primary", use_container_width=True)
 
-# --- 4. メイン画面（出力エリア） ---
-st.title("経営コンサルティング・レポート")
-st.markdown(f"**Target:** {company_name} 様 （業種: {industry}）")
+# --- 5. メイン画面（チャットエリア） ---
+st.title("🛡️ 経営コンサルティング・チャット")
+st.caption(f"Target: {company_name} 様 （業種: {industry}）")
 
-# 財務指標の計算と表示
-if revenue > 0 and total_assets > 0 and current_liabilities > 0:
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("売上高", f"{revenue:,}万円", f"{revenue - prev_revenue:,}万円")
-    col2.metric("営業利益率", f"{operating_profit/revenue*100:.1f}%")
-    col3.metric("自己資本比率", f"{total_equity/total_assets*100:.1f}%")
-    col4.metric("流動比率", f"{current_assets/current_liabilities*100:.1f}%")
-st.divider()
+# ▼▼▼ ここがデザイン変更の核心部分 ▼▼▼
 
-# --- 5. AI分析の実行 ---
-if analyze_btn:
-    with st.spinner("AIコンサルタントが分析中...（Gemini 2.5 Flash使用）"):
+# 保存されているチャット履歴を順番に表示する
+for message in st.session_state.messages:
+    # roleが'assistant'ならAIのアイコン、それ以外なら人型アイコン
+    avatar = "🛡️" if message["role"] == "assistant" else "👤"
+    with st.chat_message(message["role"], avatar=avatar):
+        st.markdown(message["content"])
+
+# 分析ボタンが押された時の処理
+if analyze_pressed:
+    # ユーザーの操作をチャット履歴に追加（今回は「分析実行」という合図として）
+    # ※ユーザーの発言として表示したくない場合は、この2行をコメントアウトしてもOKです
+    user_action = f"【分析リクエスト】\n企業名: {company_name}, 売上高: {revenue}万円..."
+    st.session_state.messages.append({"role": "user", "content": user_action})
+    with st.chat_message("user", avatar="👤"):
+        st.markdown(user_action)
+
+    # AIの思考中...を表示
+    with st.chat_message("assistant", avatar="🛡️"):
+        message_placeholder = st.empty()
+        message_placeholder.markdown("🧠 *データを分析し、レポートを作成しています...*")
         
-        # プロンプト（AIへの命令書）
+        # プロンプト作成（内容は以前と同じ）
         prompt = f"""
         あなたは日新火災海上保険のプロフェッショナルなリスクコンサルタントです。
-        以下の財務データに基づき、経営者向けの説得力あるレポートを作成してください。
-        
+        チャット形式で、経営者に語りかけるように分かりやすく、かつ説得力のある分析結果を提示してください。
+        Markdownを駆使して見やすく装飾してください。
+
         【対象企業データ】
         - 企業名: {company_name} ({industry})
         - 売上高: {revenue}万円 (前期: {prev_revenue}万円)
@@ -84,34 +100,38 @@ if analyze_btn:
         - 総資産: {total_assets}万円
         - 純資産: {total_equity}万円
 
-        【出力構成】
-        Markdown形式で見やすく出力してください。
+        【回答の構成案】
+        挨拶と、財務状況の簡単なフィードバックから始めてください。
 
-        ## 1. 経営診断サマリー
-        収益性・安全性・成長性の観点から、現状の強みと課題を簡潔にまとめてください。
+        ### 1. 経営診断サマリー（強みと課題）
+        (箇条書きや太字を使って端的に)
 
-        ## 2. 想定される経営リスク
-        この財務状況において起こりうる具体的なリスクシナリオを3つ挙げてください。
-        (例: 資金繰りの悪化、災害時の操業停止リスク、賠償責任など)
+        ### 2. 想定される重要リスク（3選）
+        (具体的なシナリオと、放置した場合の危険性)
 
-        ## 3. 日新火災からのソリューション提案
-        上記のリスクに対応する、以下の保険商品を提案してください。
-        提案の際は、「なぜこの会社に今必要なのか」を財務数値と絡めて説明してください。
+        ### 3. 日新火災からのソリューション提案
+        (以下の保険から最適なものを提案し、なぜ今必要なのかを熱く語る)
+        - **ビジサポ (事業活動包括保険)**
+        - **労災あんしん保険**
+        - **サイバーリスク保険**
+        - **ビジネスプロパティ**
 
-        - **ビジサポ (事業活動包括保険)**: 賠償リスクや休業損害への備え
-        - **労災あんしん保険**: 従業員の怪我や使用者賠償責任への備え
-        - **サイバーリスク保険**: 情報漏洩やサイバー攻撃への備え
-        - **ビジネスプロパティ**: 建物・設備の損害への備え
+        最後に、経営者を勇気づける言葉で締めくくってください。
         """
 
         try:
             # AIに回答を生成させる
             response = model.generate_content(prompt)
-            st.markdown(response.text)
+            full_response = response.text
+            
+            # 生成された回答をチャットに表示
+            message_placeholder.markdown(full_response)
+            
+            # 回答を履歴に保存（これでリロードしても消えない）
+            st.session_state.messages.append({"role": "assistant", "content": full_response})
             
         except Exception as e:
-            st.error(f"エラーが発生しました: {e}")
-            st.info("※お使いのAPIキーで利用可能なモデルが見つからない可能性があります。")
-
-else:
-    st.info("👈 左側のサイドバーに数値を入力し、「AI分析を実行する」ボタンを押してください。")
+            error_message = f"申し訳ありません、分析中にエラーが発生しました。\n\nエラー内容: {e}"
+            message_placeholder.error(error_message)
+            # エラーも履歴に残す場合
+            # st.session_state.messages.append({"role": "assistant", "content": error_message})
