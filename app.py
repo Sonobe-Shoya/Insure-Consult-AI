@@ -97,4 +97,79 @@ with st.sidebar:
     analyze_btn = st.button("AI分析を実行する", type="primary", use_container_width=True)
 
 # --- 5. メイン画面 ---
-st.title("🛡️
+st.title("🛡️ 経営コンサルティング・レポート")
+st.caption(f"Target: {company_name} 様 （業種: {industry}）")
+
+# チャット履歴の表示
+for message in st.session_state.messages:
+    avatar = "🛡️" if message["role"] == "assistant" else "👤"
+    with st.chat_message(message["role"], avatar=avatar):
+        if message["role"] == "assistant" and "---SPLIT---" in message["content"]:
+            display_as_cards(message["content"])
+        else:
+            st.markdown(message["content"])
+
+# 分析実行時の処理
+if analyze_btn:
+    # ユーザー入力を表示（ここがエラーの原因だったので修正しました）
+    user_text = f"""【分析リクエスト】
+    企業名: {company_name}
+    売上: {revenue:,}万円
+    利益: {operating_profit:,}万円"""
+    
+    st.session_state.messages.append({"role": "user", "content": user_text})
+    with st.chat_message("user", avatar="👤"):
+        st.markdown(user_text)
+
+    # AI分析開始
+    with st.chat_message("assistant", avatar="🛡️"):
+        status = st.empty()
+        status.markdown("🧠 *AIコンサルタントが分析レポートを作成中...*")
+
+        # プロンプト（カード分割用の区切り文字を指定）
+        prompt = f"""
+        あなたは日新火災海上保険のプロフェッショナルなリスクコンサルタントです。
+        以下の財務データに基づき、3つのセクションに分けたレポートを作成してください。
+
+        【重要：出力ルール】
+        各セクションの間に必ず「---SPLIT---」という区切り文字を入れてください。
+
+        【対象企業データ】
+        企業名: {company_name} ({industry})
+        売上: {revenue}万円 (前期: {prev_revenue}万円)
+        利益: {operating_profit}万円
+        流動資産: {current_assets}, 流動負債: {current_liabilities}
+        総資産: {total_assets}, 純資産: {total_equity}
+
+        【記述内容】
+        1. 経営診断サマリー
+           (タイトル不要。収益性・安全性・成長性の観点から、箇条書きで強みと課題を指摘)
+        
+        ---SPLIT---
+
+        2. 想定される経営リスク
+           (タイトル不要。この財務状況で起こりうる3つのリスクシナリオを具体的に)
+
+        ---SPLIT---
+
+        3. 日新火災からのソリューション提案
+           (タイトル不要。以下の商品から最適なものを提案し、なぜ必要なのかを熱く語る)
+           - ビジサポ (事業活動包括保険)
+           - 労災あんしん保険
+           - サイバーリスク保険
+           - ビジネスプロパティ
+        """
+
+        try:
+            response = model.generate_content(prompt)
+            full_text = response.text
+            
+            # 完了したら表示を更新
+            status.empty()
+            display_as_cards(full_text)
+            
+            # 履歴に保存
+            st.session_state.messages.append({"role": "assistant", "content": full_text})
+            
+        except Exception as e:
+            st.error(f"分析中にエラーが発生しました: {e}")
