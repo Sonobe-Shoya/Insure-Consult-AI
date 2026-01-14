@@ -16,7 +16,7 @@ except:
     st.error("APIキーが設定されていません。")
     st.stop()
 
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-pro')
 
 # --- 2. サイドバー（入力エリア） ---
 with st.sidebar:
