@@ -1,7 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 
-# --- 1. デザイン設定（日新火災風の赤をアクセントに） ---
+# --- 1. デザイン設定 ---
 st.set_page_config(
     page_title="経営分析AI for Nisshin Fire",
     page_icon="🛡️",
@@ -9,17 +9,26 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# APIキーの読み込み
+# APIキーの読み込みと設定
 try:
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-except:
-    st.error("APIキーが設定されていません。")
+    # APIキーが正しく読み込めているか確認
+    api_key = st.secrets["GOOGLE_API_KEY"]
+    genai.configure(api_key=api_key)
+except Exception as e:
+    st.error("APIキーの設定が必要です。画面右下の「Manage app」>「Settings」>「Secrets」から設定してください。")
     st.stop()
 
-model = genai.GenerativeModel('gemini-pro')
-# --- 2. サイドバー（入力エリア） ---
+# --- 2. AIモデルの準備（ここが重要） ---
+# 環境がPython 3.10に直ったので、最新のFlashモデルを指定します
+try:
+    model = genai.GenerativeModel('gemini-1.5-flash')
+except:
+    # 万が一の予備（標準モデル）
+    model = genai.GenerativeModel('gemini-pro')
+
+# --- 3. サイドバー（入力エリア） ---
 with st.sidebar:
-    st.image("https://www.nisshinfire.co.jp/common_2022/img/header_logo.png", width=200) # ロゴイメージ（仮）
+    # ロゴがある場合は表示、なければテキストのみ
     st.title("🛡️ 企業データ入力")
     
     st.markdown("### 基本情報")
@@ -47,36 +56,47 @@ with st.sidebar:
     st.markdown("---")
     analyze_btn = st.button("AI分析を実行する", type="primary", use_container_width=True)
 
-# --- 3. メイン画面（出力エリア） ---
+# --- 4. メイン画面（出力エリア） ---
 
-# ヘッダーデザイン
-st.title(f"経営コンサルティング・レポート")
+# ヘッダー
+st.title("経営コンサルティング・レポート")
 st.markdown(f"**Target:** {company_name} 様 （業種: {industry}）")
 
-# 重要な数字をトップに表示（KPI表示）
+# KPI表示
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("売上高", f"{revenue:,}万円", f"{revenue - prev_revenue:,}万円")
-col2.metric("営業利益率", f"{operating_profit/revenue*100:.1f}%")
-col3.metric("自己資本比率", f"{total_equity/total_assets*100:.1f}%")
-col4.metric("流動比率", f"{current_assets/current_liabilities*100:.1f}%")
+if revenue > 0:
+    col2.metric("営業利益率", f"{operating_profit/revenue*100:.1f}%")
+else:
+    col2.metric("営業利益率", "-%")
+
+if total_assets > 0:
+    col3.metric("自己資本比率", f"{total_equity/total_assets*100:.1f}%")
+else:
+    col3.metric("自己資本比率", "-%")
+
+if current_liabilities > 0:
+    col4.metric("流動比率", f"{current_assets/current_liabilities*100:.1f}%")
+else:
+    col4.metric("流動比率", "-%")
 
 st.divider()
 
-# 分析実行後の表示
+# 分析実行
 if analyze_btn:
     with st.spinner("AIコンサルタントが分析レポートを作成中..."):
         
-        # プロンプト（AIへの命令）
+        # AIへの命令文
         prompt = f"""
         あなたは日新火災海上保険のプロフェッショナルなリスクコンサルタントです。
         以下の財務データに基づき、経営者向けの説得力あるレポートを作成してください。
         
         【対象企業】
-        名所: {company_name} ({industry})
-        売上: {revenue}万円 (前期: {prev_revenue})
+        企業名: {company_name} ({industry})
+        売上高: {revenue}万円 (前期: {prev_revenue}万円)
         営業利益: {operating_profit}万円
-        流動資産: {current_assets}, 流動負債: {current_liabilities}
-        総資産: {total_assets}, 純資産: {total_equity}
+        流動資産: {current_assets}万円, 流動負債: {current_liabilities}万円
+        総資産: {total_assets}万円, 純資産: {total_equity}万円
 
         【出力構成】
         Markdown形式で出力すること。
@@ -99,33 +119,10 @@ if analyze_btn:
 
         try:
             response = model.generate_content(prompt)
-            
-            # 結果をタブで見やすく表示
-            tab1, tab2 = st.tabs(["📝 診断レポート", "💡 保険提案"])
-            
-            # レポートを分割して表示する工夫（AIが ## で区切る前提）
-            text = response.text
-            
-            with tab1:
-                st.info("経営状態の分析結果です")
-                st.markdown(text.split("## 3")[0]) # 前半部分を表示
-                
-            with tab2:
-                st.success("推奨されるソリューション")
-                # 後半部分（提案部分）があれば表示
-                if "## 3" in text:
-                    st.markdown("## 3" + text.split("## 3")[1]) 
-                else:
-                    st.markdown(text) # 分割できなければ全部表示
-
+            st.markdown(response.text)
         except Exception as e:
             st.error(f"分析中にエラーが発生しました: {e}")
+            st.info("※APIキーが正しいか、またはGeminiモデルが利用可能な状態か確認してください。")
 
 else:
-    # まだボタンが押されていない時の案内表示
     st.info("👈 左側のサイドバーに数値を入力し、「AI分析を実行する」ボタンを押してください。")
-    
-    # ダミーのグラフなどを表示して画面を寂しくさせない
-    st.markdown("#### 参考: 業界平均との比較イメージ")
-    chart_data = {"自社": [operating_profit/revenue*100], "業界平均": [5.0]}
-    st.bar_chart(chart_data)
