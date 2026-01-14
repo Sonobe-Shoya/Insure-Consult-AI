@@ -16,7 +16,7 @@ except:
     st.error("APIキーが設定されていません。")
     st.stop()
 
-model = genai.GenerativeModel('gemini-1.5-flash-001')
+model = genai.GenerativeModel('gemini-pro')
 # --- 2. サイドバー（入力エリア） ---
 with st.sidebar:
     st.image("https://www.nisshinfire.co.jp/common_2022/img/header_logo.png", width=200) # ロゴイメージ（仮）
