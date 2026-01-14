@@ -19,9 +19,7 @@ except Exception as e:
     st.stop()
 
 # --- 2. AIモデルの準備（ここが重要） ---
-# サーバーが直ったので、この標準モデルで確実に動きます
-model = genai.GenerativeModel('gemini-pro')
-
+model = genai.GenerativeModel('gemini-1.5-flash')
 # --- 3. サイドバー（入力エリア） ---
 with st.sidebar:
     # ロゴがある場合は表示、なければテキストのみ
