@@ -19,12 +19,8 @@ except Exception as e:
     st.stop()
 
 # --- 2. AIモデルの準備（ここが重要） ---
-# 環境がPython 3.10に直ったので、最新のFlashモデルを指定します
-try:
-    model = genai.GenerativeModel('gemini-1.5-flash')
-except:
-    # 万が一の予備（標準モデル）
-    model = genai.GenerativeModel('gemini-pro')
+# サーバーが直ったので、この標準モデルで確実に動きます
+model = genai.GenerativeModel('gemini-pro')
 
 # --- 3. サイドバー（入力エリア） ---
 with st.sidebar:
