@@ -1,6 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 import plotly.graph_objects as go
+import datetime
 
 # --- 1. アプリ設定とCSSデザイン ---
 st.set_page_config(
@@ -10,7 +11,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# デザインCSS: 美しさ、信頼感、可読性を重視
+# デザインCSS
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
@@ -33,7 +34,7 @@ st.markdown("""
         align-items: center;
     }
     .company-name { font-size: 1.8rem; font-weight: 700; color: #1a237e; }
-    .meta-info { font-size: 0.9rem; color: #666; text-align: right; }
+    .meta-info { font-size: 0.9rem; color: #666; text-align: right; line-height: 1.5; }
 
     /* 共通カードスタイル */
     .card-container {
@@ -133,7 +134,11 @@ def calculate_scores(rev, prev_rev, op_profit, assets, equity, cur_assets, cur_l
 # --- 3. サイドバー入力 ---
 with st.sidebar:
     st.markdown("## 🛡️ 経営診断ツール")
-    st.markdown("日新火災海上保険株式会社<br>担当: 園部", unsafe_allow_html=True)
+    
+    # === 修正点: 担当者名の入力フィールドを追加 ===
+    agent_name = st.text_input("担当者名", value="園部", placeholder="氏名を入力")
+    
+    st.markdown(f"日新火災海上保険株式会社<br>担当: {agent_name}", unsafe_allow_html=True)
     st.divider()
     
     company_name = st.text_input("企業名", value="株式会社サンプル技研")
@@ -156,13 +161,14 @@ with st.sidebar:
 
 # --- 4. メインコンテンツ ---
 
-# ヘッダー
+# ヘッダー (担当者名を反映)
+today_str = datetime.date.today().strftime('%Y/%m/%d')
 st.markdown(f"""
 <div class="report-header">
     <div class="company-name">{company_name} 御中</div>
     <div class="meta-info">
         経営財務・リスク診断レポート<br>
-        作成日: 2026/01/21 | 分析担当: 園部
+        作成日: {today_str} | 分析担当: {agent_name}
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -232,10 +238,10 @@ if analyze_btn:
         
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # AI分析の実行（リスクと提案を分離して生成）
+    # AI分析の実行
     with st.spinner("AIコンサルタントがリスク分析と提案書を作成中..."):
         prompt = f"""
-        あなたは日新火災海上保険のリスクコンサルタントです。
+        あなたは日新火災海上保険のリスクコンサルタント（担当:{agent_name}）です。
         以下の企業データに基づき、「経営リスク」と「日新火災の保険による解決策」を提案してください。
         
         【企業データ】
@@ -256,6 +262,7 @@ if analyze_btn:
         Part 2: 日新火災からのご提案 (3つ)
         - 上記リスクに対応する日新火災の商品（ビジサポ・事業活動包括、労災あんしん、サイバー保険、企業財産包括など）を具体的に挙げる。
         - なぜその保険が必要か、経営メリット（B/Sを守る等）を添えて。
+        - 担当者の「{agent_name}」が親身にサポートする旨を少し匂わせて。
         """
         
         try:
@@ -276,7 +283,7 @@ if analyze_btn:
     # 左側：経営リスク
     with col_risk:
         st.markdown('<div class="section-title"><span class="section-icon">⚠️</span> 2. 現在の経営リスク</div>', unsafe_allow_html=True)
-        # Markdownの内容をパースしてカード化（簡易処理）
+        # Markdownの整形
         lines = risk_text.strip().split('\n')
         content_buffer = ""
         for line in lines:
@@ -295,7 +302,7 @@ if analyze_btn:
     # 右側：日新火災からのご提案
     with col_prop:
         st.markdown('<div class="section-title"><span class="section-icon">🎁</span> 3. 日新火災からのご提案</div>', unsafe_allow_html=True)
-        # Markdownの内容をパース
+        # Markdownの整形
         lines = proposal_text.strip().split('\n')
         content_buffer = ""
         for line in lines:
@@ -312,9 +319,9 @@ if analyze_btn:
         """, unsafe_allow_html=True)
 
     # フッターメッセージ
-    st.markdown("""
+    st.markdown(f"""
     <div style="text-align: center; margin-top: 50px; color: #888; font-size: 0.8rem;">
-        ※本レポートはAIによる簡易診断です。詳細なリスク分析については、担当者までご相談ください。<br>
+        ※本レポートはAIによる簡易診断です。詳細なリスク分析については、担当者（{agent_name}）までご相談ください。<br>
         日新火災海上保険株式会社
     </div>
     """, unsafe_allow_html=True)
