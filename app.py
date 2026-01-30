@@ -73,6 +73,7 @@ st.markdown("""
     .c-safe { color: #00C853; }
     .c-profit { color: #2962FF; }
     .c-growth { color: #FF6D00; }
+    .c-gray { color: #B0BEC5; } /* データなし用 */
 
     /* リスクカード（警告） */
     .risk-card {
@@ -114,28 +115,51 @@ except:
     st.error("APIキー設定エラー: secrets.tomlを確認してください。")
     st.stop()
 
-# --- 2. 計算ロジック ---
+# --- 2. 計算ロジック (Null対応版) ---
 def calculate_scores(rev, prev_rev, op_profit, assets, equity, cur_assets, cur_liab):
-    # 安全性 (B/S重視)
-    equity_ratio = (equity / assets) * 100 if assets > 0 else 0
-    current_ratio = (cur_assets / cur_liab) * 100 if cur_liab > 0 else 0
-    score_safety = min(100, max(0, int((equity_ratio * 1.2) + (current_ratio * 0.15))))
-
-    # 収益性 (P/L)
-    op_margin = (op_profit / rev) * 100 if rev > 0 else 0
-    score_profit = min(100, max(0, int(op_margin * 8)))
     
-    # 成長性
-    growth_rate = (rev / prev_rev) * 100 if prev_rev > 0 else 100
-    score_growth = min(100, max(0, int((growth_rate - 95) * 4)))
+    # 安全な割り算関数 (NoneがあったらNoneを返す)
+    def safe_calc(numerator, denominator, multiplier=100):
+        if numerator is None or denominator is None or denominator == 0:
+            return None
+        return (numerator / denominator) * multiplier
+
+    # --- 安全性 (B/S) ---
+    equity_ratio = safe_calc(equity, assets)
+    current_ratio = safe_calc(cur_assets, cur_liab)
+    
+    if equity_ratio is not None and current_ratio is not None:
+        # 両方データがある場合
+        score_safety = min(100, max(0, int((equity_ratio * 1.2) + (current_ratio * 0.15))))
+    elif equity_ratio is not None:
+        # 自己資本比率だけある場合（簡易計算）
+        score_safety = min(100, max(0, int(equity_ratio * 1.5)))
+    else:
+        # データ不足
+        score_safety = None
+
+    # --- 収益性 (P/L) ---
+    op_margin = safe_calc(op_profit, rev)
+    
+    if op_margin is not None:
+        score_profit = min(100, max(0, int(op_margin * 8)))
+    else:
+        score_profit = None
+
+    # --- 成長性 ---
+    if rev is not None and prev_rev is not None and prev_rev > 0:
+        growth_rate = (rev / prev_rev) * 100
+        score_growth = min(100, max(0, int((growth_rate - 95) * 4)))
+    else:
+        growth_rate = None
+        score_growth = None
 
     return score_profit, score_safety, score_growth, op_margin, equity_ratio, growth_rate
 
-# --- 3. サイドバー入力 ---
+# --- 3. サイドバー入力 (Null許容) ---
 with st.sidebar:
     st.markdown("## 🛡️ 経営診断ツール")
     
-    # === 修正点: 担当者名の入力フィールドを追加 ===
     agent_name = st.text_input("担当者名", value="園部", placeholder="氏名を入力")
     
     st.markdown(f"日新火災海上保険株式会社<br>担当: {agent_name}", unsafe_allow_html=True)
@@ -144,24 +168,27 @@ with st.sidebar:
     company_name = st.text_input("企業名", value="株式会社サンプル技研")
     industry = st.selectbox("業種", ["建設業", "製造業", "運送業", "卸売・小売", "サービス", "IT・通信", "医療・福祉", "その他"])
     
+    st.info("💡 数字が不明な箇所は「空欄」のままでOKです。")
+
+    # value=None に設定することで、初期値を空欄にします
     with st.expander("① 決算書 P/L (概算)", expanded=True):
-        revenue = st.number_input("売上高 (万円)", value=12000, step=100)
-        prev_revenue = st.number_input("前期売上 (万円)", value=11000, step=100)
-        operating_profit = st.number_input("営業利益 (万円)", value=600, step=10)
+        revenue = st.number_input("売上高 (万円)", value=None, step=100, placeholder="不明な場合は空欄")
+        prev_revenue = st.number_input("前期売上 (万円)", value=None, step=100, placeholder="不明な場合は空欄")
+        operating_profit = st.number_input("営業利益 (万円)", value=None, step=10, placeholder="不明な場合は空欄")
 
     with st.expander("② 決算書 B/S (重要)", expanded=True):
         st.caption("※ここが「会社の倒産確率」を分けます")
-        current_assets = st.number_input("流動資産 (現金等)", value=8000, step=100)
-        current_liabilities = st.number_input("流動負債 (借入等)", value=5000, step=100)
-        total_assets = st.number_input("総資産", value=15000, step=100)
-        total_equity = st.number_input("純資産 (自己資本)", value=6000, step=100)
+        current_assets = st.number_input("流動資産 (現金等)", value=None, step=100, placeholder="不明な場合は空欄")
+        current_liabilities = st.number_input("流動負債 (借入等)", value=None, step=100, placeholder="不明な場合は空欄")
+        total_assets = st.number_input("総資産", value=None, step=100, placeholder="不明な場合は空欄")
+        total_equity = st.number_input("純資産 (自己資本)", value=None, step=100, placeholder="不明な場合は空欄")
 
     st.markdown("---")
     analyze_btn = st.button("レポートを作成する", type="primary", use_container_width=True)
 
 # --- 4. メインコンテンツ ---
 
-# ヘッダー (担当者名を反映)
+# ヘッダー
 today_str = datetime.date.today().strftime('%Y/%m/%d')
 st.markdown(f"""
 <div class="report-header">
@@ -188,42 +215,76 @@ if analyze_btn:
         st.markdown('<div class="card-container">', unsafe_allow_html=True)
         col1, col2, col3, col4 = st.columns([1, 1, 1, 1.2])
 
-        # 安全性
+        # 安全性表示ロジック
+        if s_safety is not None:
+            safe_disp = s_safety
+            safe_sub = f"自己資本比率: {val_safety:.1f}%<br>不況耐久力"
+            css_safe = "c-safe"
+        else:
+            safe_disp = "-"
+            safe_sub = "データ不足<br>入力が必要です"
+            css_safe = "c-gray"
+
         with col1:
             st.markdown(f"""
             <div class="score-box">
                 <div class="score-lbl">🛡️ 安全性 (B/S)</div>
-                <div class="score-val c-safe">{s_safety}</div>
-                <div class="score-sub">自己資本比率: {val_safety:.1f}%<br>不況耐久力</div>
+                <div class="score-val {css_safe}">{safe_disp}</div>
+                <div class="score-sub">{safe_sub}</div>
             </div>
             """, unsafe_allow_html=True)
         
-        # 収益性
+        # 収益性表示ロジック
+        if s_profit is not None:
+            prof_disp = s_profit
+            prof_sub = f"営業利益率: {val_profit:.1f}%<br>稼ぐ力"
+            css_prof = "c-profit"
+        else:
+            prof_disp = "-"
+            prof_sub = "データ不足<br>入力が必要です"
+            css_prof = "c-gray"
+
         with col2:
             st.markdown(f"""
             <div class="score-box">
                 <div class="score-lbl">💰 収益性 (P/L)</div>
-                <div class="score-val c-profit">{s_profit}</div>
-                <div class="score-sub">営業利益率: {val_profit:.1f}%<br>稼ぐ力</div>
+                <div class="score-val {css_prof}">{prof_disp}</div>
+                <div class="score-sub">{prof_sub}</div>
             </div>
             """, unsafe_allow_html=True)
             
-        # 成長性
+        # 成長性表示ロジック
+        if s_growth is not None:
+            grow_disp = s_growth
+            grow_sub = f"対前期比: {val_growth:.1f}%<br>事業の勢い"
+            css_grow = "c-growth"
+        else:
+            grow_disp = "-"
+            grow_sub = "データ不足<br>入力が必要です"
+            css_grow = "c-gray"
+
         with col3:
             st.markdown(f"""
             <div class="score-box">
                 <div class="score-lbl">📈 成長性</div>
-                <div class="score-val c-growth">{s_growth}</div>
-                <div class="score-sub">対前期比: {val_growth:.1f}%<br>事業の勢い</div>
+                <div class="score-val {css_grow}">{grow_disp}</div>
+                <div class="score-sub">{grow_sub}</div>
             </div>
             """, unsafe_allow_html=True)
             
-        # チャート
+        # チャート (Noneの場合は0として描画し、見た目を整える)
         with col4:
             categories = ['安全性', '収益性', '成長性']
+            # Noneを0に変換してチャート用データ作成
+            plot_vals = [
+                s_safety if s_safety is not None else 0,
+                s_profit if s_profit is not None else 0,
+                s_growth if s_growth is not None else 0
+            ]
+            
             fig = go.Figure()
             fig.add_trace(go.Scatterpolar(
-                r=[s_safety, s_profit, s_growth],
+                r=plot_vals,
                 theta=categories,
                 fill='toself',
                 name='Score',
@@ -240,20 +301,27 @@ if analyze_btn:
 
     # AI分析の実行
     with st.spinner("AIコンサルタントがリスク分析と提案書を作成中..."):
+        # プロンプト用に数値を文字列化（None対応）
+        fmt = lambda x, unit="": f"{x}{unit}" if x is not None else "データなし"
+        
         prompt = f"""
         あなたは日新火災海上保険のリスクコンサルタント（担当:{agent_name}）です。
         以下の企業データに基づき、「経営リスク」と「日新火災の保険による解決策」を提案してください。
         
         【企業データ】
         企業名: {company_name} ({industry})
-        財務スコア: 安全性{s_safety}, 収益性{s_profit}, 成長性{s_growth}
-        (自己資本比率{val_safety:.1f}%, 営業利益率{val_profit:.1f}%)
+        財務スコア: 安全性{fmt(s_safety)}, 収益性{fmt(s_profit)}, 成長性{fmt(s_growth)}
+        (自己資本比率{fmt(val_safety, "%")}, 営業利益率{fmt(val_profit, "%")})
+        
+        【重要なお願い】
+        数値が「データなし」となっている項目については、分析を行わず、「データ不足のため分析できません」と記述してください。
+        判明しているデータのみを使って、鋭いリスク指摘と保険提案を行ってください。
 
         【出力フォーマット】
         以下の区切り文字 "|||" を使って、2つのパートに完全に分けて出力してください。
         
         Part 1: 現在の経営リスク (3つ)
-        - 財務数値から読み取れる具体的なリスク（資金ショート、人材流出、賠償リスクなど）。
+        - 判明している財務数値から読み取れる具体的なリスク。
         - 箇条書きで、各リスクに短いタイトルをつけてください。
         - 警告アイコン(⚠️)などは不要です。テキストのみ。
         
@@ -333,7 +401,8 @@ else:
         <h2 style="color:#1a237e;">経営財務・リスク診断システム</h2>
         <p style="color:#666; font-size:1.1rem;">
             左側のメニューに数値を入力し、<b>「レポートを作成する」</b>ボタンを押してください。<br>
-            AIが財務数値を分析し、貴社の「隠れたリスク」と「最適な解決策」を提示します。
+            不明な数字は「空欄」のままで構いません。<br>
+            AIが入力された情報のみから、貴社の「隠れたリスク」と「最適な解決策」を提示します。
         </p>
     </div>
     """, unsafe_allow_html=True)
